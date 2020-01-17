@@ -1,9 +1,9 @@
-using DotNetWebApiSeed.Entities;
+using DotNetWebApiSeed.Models.Users;
 
 namespace DotNetWebApiSeed.Interfaces
 {
     public interface IAuthenticationService
     {
-        public User Authenticate(string username, string password);
+        UserModel Authenticate(string username, string password);
     }
 }

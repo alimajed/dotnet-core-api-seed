@@ -1,13 +1,12 @@
 using System;
-using System.Collections.Generic;
 using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
 using System.Security.Claims;
 using System.Text;
-using DotNetWebApiSeed.Entities;
-using DotNetWebApiSeed.Extensions;
+using DotNetWebApiSeed.Data;
 using DotNetWebApiSeed.Helpers;
 using DotNetWebApiSeed.Interfaces;
+using DotNetWebApiSeed.Models.Users;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 
@@ -15,23 +14,30 @@ namespace DotNetWebApiSeed.Services
 {
     public class AuthenticationService : IAuthenticationService
     {
-        private List<User> _users = new List<User>
-        {
-            new User { Id = 1, FirstName = "Admin", LastName = "User", Username = "admin", Password = "admin" },
-            new User { Id = 2, FirstName = "Normal", LastName = "User", Username = "user", Password = "user" }
-        };
-
+        private readonly DataContext _context;
         private readonly AppSettings _appSettings;
 
-        public AuthenticationService(IOptions<AppSettings> appSettings)
+        public AuthenticationService(DataContext context, IOptions<AppSettings> appSettings)
         {
+            _context = context;
             _appSettings = appSettings.Value;
         }
 
-        public User Authenticate(string username, string password)
+        public UserModel Authenticate(string username, string password)
         {
-            var user = _users.SingleOrDefault(x => x.Username == username && x.Password == password);
+            if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password)) 
+            {
+                return null;
+            }
+
+            var user = _context.Users.SingleOrDefault(x => x.Username == username);
+
             if (user == null)
+            {
+            return null;
+            }
+
+            if (!VerifyPasswordHash(password, user.PasswordHash, user.PasswordSalt))
             {
                 return null;
             }
@@ -49,9 +55,37 @@ namespace DotNetWebApiSeed.Services
             };
 
             var token = tokenHandler.CreateToken(tokenDescriptor);
-            user.Token = tokenHandler.WriteToken(token);
-
-            return user.UsersWithoutPasswords();
+            return new UserModel
+            {
+                Id = user.Id,
+                FirstName = user.FirstName,
+                LastName = user.LastName,
+                DateOfBirth = user.DateOfBirth,
+                Gender = user.Gender,
+                Username = user.Username,
+                Token = tokenHandler.WriteToken(token)
+            };
         }
+
+        #region private
+        private static bool VerifyPasswordHash(string password, byte[] storedHash, byte[] storedSalt)
+        {
+            if (password == null) throw new ArgumentNullException("password");
+            if (string.IsNullOrWhiteSpace(password)) throw new ArgumentException("Value cannot be empty or whitespace only string.", "password");
+            if (storedHash.Length != 64) throw new ArgumentException("Invalid length of password hash (64 bytes expected).", "passwordHash");
+            if (storedSalt.Length != 128) throw new ArgumentException("Invalid length of password salt (128 bytes expected).", "passwordHash");
+
+            using (var hmac = new System.Security.Cryptography.HMACSHA512(storedSalt))
+            {
+                var computedHash = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(password));
+                for (int i = 0; i < computedHash.Length; i++)
+                {
+                    if (computedHash[i] != storedHash[i]) return false;
+                }
+            }
+
+            return true;
+        }
+        #endregion
     }
 }
